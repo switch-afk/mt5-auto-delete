@@ -24,8 +24,6 @@ trade_data_store = {
 # Global variables for script control
 script_process = None
 script_status = 'stopped'  # 'stopped', 'running', 'stopping'
-script_start_time = None
-script_timer = None
 
 @app.route('/')
 def home():
@@ -274,7 +272,7 @@ def delete_files():
 
 @app.route('/start_script', methods=['POST'])
 def start_script():
-    global script_process, script_status, script_start_time, script_timer
+    global script_process, script_status
     
     if script_status == 'running':
         return jsonify({'status': 'error', 'message': 'Script is already running'})
@@ -284,82 +282,58 @@ def start_script():
         if not os.path.exists('script.py'):
             return jsonify({'status': 'error', 'message': 'script.py not found in root folder'})
         
-        # Start the 5-second timer
-        script_start_time = time.time()
-        print(f"🕐 Starting 5-second timer at {datetime.now().strftime('%H:%M:%S')}")
-        
-        def start_script_after_timer():
-            global script_process, script_status
-            try:
-                print(f"⏰ Timer completed! Starting script at {datetime.now().strftime('%H:%M:%S')}")
-                
-                # Start the script as a subprocess with better error handling
-                if os.name == 'nt':  # Windows
-                    script_process = subprocess.Popen(
-                        ['python', 'script.py'], 
-                        stdout=subprocess.PIPE, 
-                        stderr=subprocess.STDOUT,  # Combine stderr with stdout
-                        stdin=subprocess.PIPE,
-                        text=True,
-                        bufsize=1,
-                        universal_newlines=True,
-                        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
-                    )
-                else:  # Unix/Linux/Mac
-                    script_process = subprocess.Popen(
-                        ['python', 'script.py'], 
-                        stdout=subprocess.PIPE, 
-                        stderr=subprocess.STDOUT,
-                        stdin=subprocess.PIPE,
-                        text=True,
-                        bufsize=1,
-                        universal_newlines=True,
-                        preexec_fn=os.setsid
-                    )
-                
-                # Start a thread to monitor the script output
-                def monitor_script():
-                    try:
-                        while script_process.poll() is None:
-                            if script_process.stdout:
-                                line = script_process.stdout.readline()
-                                if line:
-                                    print(f"[SCRIPT]: {line.strip()}")
-                            time.sleep(0.1)
-                    except Exception as e:
-                        print(f"[SCRIPT MONITOR ERROR]: {e}")
-                
-                monitor_thread = threading.Thread(target=monitor_script, daemon=True)
-                monitor_thread.start()
-                
-                print(f"Started script.py with PID: {script_process.pid}")
-                
-            except Exception as e:
-                script_status = 'stopped'
-                script_process = None
-                print(f"Error starting script after timer: {e}")
-        
-        # Start timer thread
-        script_timer = threading.Timer(5.0, start_script_after_timer)
-        script_timer.start()
+        # Start the script as a subprocess with better error handling
+        if os.name == 'nt':  # Windows
+            script_process = subprocess.Popen(
+                ['python', 'script.py'], 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.STDOUT,  # Combine stderr with stdout
+                stdin=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
+            )
+        else:  # Unix/Linux/Mac
+            script_process = subprocess.Popen(
+                ['python', 'script.py'], 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+                preexec_fn=os.setsid
+            )
         
         script_status = 'running'
         
-        print(f"🎯 Script will start in 5 seconds...")
-        return jsonify({'status': 'success', 'message': 'Script will start in 5 seconds...'})
+        # Start a thread to monitor the script output
+        def monitor_script():
+            try:
+                while script_process.poll() is None:
+                    if script_process.stdout:
+                        line = script_process.stdout.readline()
+                        if line:
+                            print(f"[SCRIPT]: {line.strip()}")
+                    time.sleep(0.1)
+            except Exception as e:
+                print(f"[SCRIPT MONITOR ERROR]: {e}")
+        
+        monitor_thread = threading.Thread(target=monitor_script, daemon=True)
+        monitor_thread.start()
+        
+        print(f"Started script.py with PID: {script_process.pid}")
+        return jsonify({'status': 'success', 'message': 'Script started successfully'})
         
     except Exception as e:
         script_status = 'stopped'
-        script_start_time = None
-        if script_timer:
-            script_timer.cancel()
-            script_timer = None
         print(f"Error starting script: {e}")
         return jsonify({'status': 'error', 'message': f'Failed to start script: {str(e)}'})
 
 @app.route('/stop_script', methods=['POST'])
 def stop_script():
-    global script_process, script_status, script_start_time, script_timer
+    global script_process, script_status
     
     if script_status != 'running':
         return jsonify({'status': 'error', 'message': 'Script is not running'})
@@ -367,45 +341,33 @@ def stop_script():
     try:
         script_status = 'stopping'
         
-        # Cancel timer if it's still running
-        if script_timer and script_timer.is_alive():
-            script_timer.cancel()
-            script_timer = None
-            print("🛑 Timer cancelled before script start")
-        
-        # Stop the actual script if it's running
-        if script_process:
-            # Check if process is still running
-            if script_process.poll() is None:
-                # Terminate the process
-                if os.name == 'nt':  # Windows
-                    try:
-                        script_process.send_signal(signal.CTRL_BREAK_EVENT)
-                    except:
-                        pass
-                    time.sleep(1)
+        if script_process and script_process.poll() is None:
+            # Terminate the process
+            if os.name == 'nt':  # Windows
+                try:
+                    script_process.send_signal(signal.CTRL_BREAK_EVENT)
+                except:
+                    pass
+                time.sleep(2)
+                if script_process.poll() is None:
+                    script_process.terminate()
+                    time.sleep(2)
                     if script_process.poll() is None:
-                        script_process.terminate()
-                        time.sleep(1)
-                        if script_process.poll() is None:
-                            script_process.kill()
-                else:  # Unix/Linux/Mac
+                        script_process.kill()
+            else:  # Unix/Linux/Mac
+                try:
+                    os.killpg(os.getpgid(script_process.pid), signal.SIGTERM)
+                except:
+                    script_process.terminate()
+                time.sleep(2)
+                if script_process.poll() is None:
                     try:
-                        os.killpg(os.getpgid(script_process.pid), signal.SIGTERM)
+                        os.killpg(os.getpgid(script_process.pid), signal.SIGKILL)
                     except:
-                        script_process.terminate()
-                    time.sleep(1)
-                    if script_process.poll() is None:
-                        try:
-                            os.killpg(os.getpgid(script_process.pid), signal.SIGKILL)
-                        except:
-                            script_process.kill()
+                        script_process.kill()
         
-        # Always set to stopped and clear everything
         script_status = 'stopped'
         script_process = None
-        script_start_time = None
-        script_timer = None
         
         print("Script stopped successfully")
         return jsonify({'status': 'success', 'message': 'Script stopped successfully'})
@@ -413,36 +375,14 @@ def stop_script():
     except Exception as e:
         script_status = 'stopped'
         script_process = None
-        script_start_time = None
-        script_timer = None
         print(f"Error stopping script: {e}")
-        return jsonify({'status': 'success', 'message': 'Script stopped (with errors but process cleared)'})
+        return jsonify({'status': 'error', 'message': f'Error stopping script: {str(e)}'})
 
 @app.route('/script_status')
 def get_script_status():
-    global script_process, script_status, script_start_time, script_timer
+    global script_process, script_status
     
-    # If we're in running state but checking timer vs actual script
-    if script_status == 'running':
-        # Check if we're still in timer phase
-        if script_start_time and script_process is None:
-            elapsed = time.time() - script_start_time
-            if elapsed < 5.0:
-                remaining = 5.0 - elapsed
-                return jsonify({
-                    'status': 'running', 
-                    'timer_remaining': round(remaining, 1),
-                    'phase': 'timer'
-                })
-            else:
-                # Timer should have completed, check if script started
-                if script_process is None:
-                    # Something went wrong, reset
-                    script_status = 'stopped'
-                    script_start_time = None
-                    script_timer = None
-    
-    # Check if process is still running (for actual script)
+    # Check if process is still running
     if script_process and script_process.poll() is not None:
         # Process has ended, check exit code
         exit_code = script_process.returncode
@@ -458,10 +398,8 @@ def get_script_status():
                 pass
         script_status = 'stopped'
         script_process = None
-        script_start_time = None
-        script_timer = None
     
-    return jsonify({'status': script_status, 'phase': 'script' if script_process else 'ready'})
+    return jsonify({'status': script_status})
 
 def apply_consecutive_filter(trades, filter_type, trade_type):
     """Apply consecutive filtering logic based on filter type and trade type"""
@@ -611,25 +549,6 @@ def trades_are_consecutive(trade1, trade2):
         return index2 == index1 + 1
     except (ValueError, TypeError):
         return False
-
-@app.route('/script_logs')
-def get_script_logs():
-    """Get the last few lines of script output for debugging"""
-    global script_process
-    
-    if not script_process:
-        return jsonify({'logs': 'No script running'})
-    
-    try:
-        # If process has ended, try to get any remaining output
-        if script_process.poll() is not None:
-            if script_process.stdout:
-                output = script_process.stdout.read()
-                if output:
-                    return jsonify({'logs': output})
-        return jsonify({'logs': 'Script is running...'})
-    except Exception as e:
-        return jsonify({'logs': f'Error reading logs: {e}'})
 
 if __name__ == '__main__':
     app.run(debug=True)
