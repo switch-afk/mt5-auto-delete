@@ -1,0 +1,158 @@
+<!-- File Upload and Loss Trades Block -->
+<div class="terminal-border rounded-lg bg-terminal-dark p-6 mb-6">
+    <div class="flex items-center mb-4">
+        <div class="flex space-x-2">
+            <div class="w-3 h-3 bg-red-500 rounded-full"></div>
+            <div class="w-3 h-3 bg-yellow-500 rounded-full"></div>
+            <div class="w-3 h-3 bg-green-500 rounded-full"></div>
+        </div>
+        <span class="ml-4 text-sm text-gray-400">trade-analyzer@flask:~$</span>
+    </div>
+    
+    <!-- File Upload Section -->
+    <div class="space-y-4">
+        <div class="flex items-center">
+            <span class="text-terminal-green">$</span>
+            <span class="ml-2 terminal-text">upload --xlsx-file</span>
+        </div>
+        
+        <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data" class="ml-4">
+            <div class="flex items-center space-x-4">
+                <input type="file" name="file" accept=".xlsx" 
+                       class="bg-gray-800 text-terminal-green border border-terminal-green rounded px-3 py-2 text-sm">
+                <button type="submit" 
+                        class="bg-terminal-green text-black px-4 py-2 rounded hover:bg-green-400 transition-colors font-semibold">
+                    ANALYZE
+                </button>
+                <a href="{{ url_for('clear_data') }}" 
+                   class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 transition-colors">
+                    CLEAR
+                </a>
+                <a href="{{ url_for('delete_files') }}" 
+                   class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700 transition-colors"
+                   onclick="return confirm('Are you sure you want to delete all files in main/ and shots/ directories? This action cannot be undone.')">
+                    DELETE FILES
+                </a>
+            </div>
+        </form>
+
+        {% if session.get('error') %}
+        <div class="ml-4 text-red-400">
+            <p>ERROR: {{ session.get('error') }}</p>
+        </div>
+        {% endif %}
+
+        {% if session.get('success_message') %}
+        <div class="ml-4 text-green-400">
+            <p>SUCCESS: {{ session.get('success_message') }}</p>
+        </div>
+        {% endif %}
+
+        <!-- Trader Info Display -->
+        {% if trader_info %}
+        <div class="ml-4 mt-4">
+            <div class="flex items-center mb-2">
+                <span class="text-terminal-green">$</span>
+                <span class="ml-2 text-gray-400">trader --info</span>
+            </div>
+            <div class="ml-4 bg-gray-900 rounded p-3 border border-gray-700">
+                {% if trader_info.name %}
+                <p class="text-blue-400"><span class="text-yellow-400">Name:</span> {{ trader_info.name }}</p>
+                {% endif %}
+                {% if trader_info.account %}
+                <p class="text-blue-400"><span class="text-yellow-400">Account:</span> {{ trader_info.account }}</p>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- All Trades Display -->
+        {% if trades %}
+        <div class="ml-4 mt-6">
+            <div class="flex items-center mb-4">
+                <span class="text-terminal-green">$</span>
+                <span class="ml-2 text-gray-400">show --all-trades</span>
+            </div>
+            
+            <div class="bg-gray-900 rounded p-4 border border-gray-700">
+                <h3 class="text-terminal-green font-semibold mb-3">ALL TRADES ANALYSIS</h3>
+                
+                <!-- Trades Table -->
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="border-b border-gray-700">
+                                <th class="text-left py-2 text-yellow-400">POSITION</th>
+                                <th class="text-left py-2 text-yellow-400">TIME</th>
+                                <th class="text-right py-2 text-yellow-400">PROFIT/LOSS</th>
+                                <th class="text-center py-2 text-yellow-400">TYPE</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for trade in trades %}
+                            <tr class="border-b border-gray-800">
+                                <td class="py-2 text-blue-400">{{ trade.position }}</td>
+                                <td class="py-2 text-gray-300">{{ trade.time }}</td>
+                                <td class="py-2 text-right 
+                                    {% if trade.profit > 0 %}text-green-400
+                                    {% elif trade.profit < 0 %}text-red-400
+                                    {% else %}text-gray-400{% endif %}">
+                                    ${{ "%.2f"|format(trade.profit) }}
+                                </td>
+                                <td class="py-2 text-center">
+                                    {% if trade.type == 'PROFIT' %}
+                                        <span class="bg-green-600 text-green-100 px-2 py-1 rounded text-xs">PROFIT</span>
+                                    {% elif trade.type == 'LOSS' %}
+                                        <span class="bg-red-600 text-red-100 px-2 py-1 rounded text-xs">LOSS</span>
+                                    {% else %}
+                                        <span class="bg-gray-600 text-gray-100 px-2 py-1 rounded text-xs">BREAKEVEN</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Pagination -->
+                {% if pagination.total_pages > 1 %}
+                <div class="flex items-center justify-between mt-4 pt-4 border-t border-gray-700">
+                    <div class="text-gray-400 text-xs">
+                        Showing {{ ((pagination.page - 1) * 10) + 1 }} - {{ [pagination.page * 10, pagination.total_trades] | min }} 
+                        of {{ pagination.total_trades }} trades
+                    </div>
+                    
+                    <div class="flex items-center space-x-2">
+                        {% if pagination.has_prev %}
+                        <a href="{{ url_for('home', page=pagination.page-1) }}" 
+                           class="text-terminal-green hover:text-green-400 text-xs border border-terminal-green px-2 py-1 rounded">
+                            PREV
+                        </a>
+                        {% endif %}
+                        
+                        <span class="text-gray-400 text-xs">
+                            {{ pagination.page }} / {{ pagination.total_pages }}
+                        </span>
+                        
+                        {% if pagination.has_next %}
+                        <a href="{{ url_for('home', page=pagination.page+1) }}" 
+                           class="text-terminal-green hover:text-green-400 text-xs border border-terminal-green px-2 py-1 rounded">
+                            NEXT
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% else %}
+        <div class="ml-4">
+            <div class="flex items-center">
+                <span class="text-terminal-green">$</span>
+                <span class="ml-2 text-gray-400">status --ready</span>
+            </div>
+            <p class="ml-4 text-gray-500 text-sm mt-2">Upload XLSX file to analyze all trades</p>
+        </div>
+        {% endif %}
+    </div>
+</div>

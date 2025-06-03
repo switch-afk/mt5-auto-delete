@@ -1,0 +1,246 @@
+<!-- Loss Trade Filter Section -->
+<div class="terminal-border rounded-lg bg-terminal-dark p-6">
+    <div class="flex items-center mb-4">
+        <div class="flex space-x-2">
+            <div class="w-3 h-3 bg-red-500 rounded-full"></div>
+            <div class="w-3 h-3 bg-yellow-500 rounded-full"></div>
+            <div class="w-3 h-3 bg-green-500 rounded-full"></div>
+        </div>
+        <span class="ml-4 text-sm text-gray-400">filter@flask:~$</span>
+    </div>
+    
+    <div class="space-y-4">
+        <div class="flex items-center">
+            <span class="text-terminal-green">$</span>
+            <span class="ml-2 terminal-text">filter - trades</span>
+        </div>
+        
+        <!-- Filter Form -->
+        <form method="POST" action="{{ url_for('filter_trades') }}" class="ml-4">
+            <div class="flex items-center space-x-4 mb-4">
+                <!-- Trade Type Selection -->
+                <label class="text-yellow-400 text-sm">TRADE TYPE:</label>
+                <select name="trade_type" 
+                        class="bg-gray-800 text-terminal-green border border-terminal-green rounded px-3 py-2 text-sm">
+                    <option value="all" {% if session.get('trade_type') == 'all' %}selected{% endif %}>All Trades</option>
+                    <option value="profit" {% if session.get('trade_type') == 'profit' %}selected{% endif %}>Profit Only</option>
+                    <option value="loss" {% if session.get('trade_type') == 'loss' %}selected{% endif %}>Loss Only</option>
+                </select>
+                
+                <!-- Consecutive Filter (only for loss trades) -->
+                <label class="text-yellow-400 text-sm">CONSECUTIVE FILTER:</label>
+                <select name="filter_type" 
+                        class="bg-gray-800 text-terminal-green border border-terminal-green rounded px-3 py-2 text-sm">
+                    <option value="all" {% if session.get('filter_type') == 'all' %}selected{% endif %}>No Filter</option>
+                    <option value="1" {% if session.get('filter_type') == '1' %}selected{% endif %}>1 - Single Orders</option>
+                    <option value="2" {% if session.get('filter_type') == '2' %}selected{% endif %}>2 - Max 2 Consecutive</option>
+                    <option value="3" {% if session.get('filter_type') == '3' %}selected{% endif %}>3 - Max 3 Consecutive</option>
+                    <option value="4" {% if session.get('filter_type') == '4' %}selected{% endif %}>4 - Max 4 Consecutive</option>
+                    <option value="5" {% if session.get('filter_type') == '5' %}selected{% endif %}>5 - Max 5 Consecutive</option>
+                    <option value="consecutive" {% if session.get('filter_type') == 'consecutive' %}selected{% endif %}>All Consecutive</option>
+                </select>
+                
+                <button type="submit" 
+                        class="bg-terminal-green text-black px-4 py-2 rounded hover:bg-green-400 transition-colors font-semibold">
+                    APPLY FILTER
+                </button>
+                <a href="{{ url_for('clear_filter') }}" 
+                   class="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700 transition-colors">
+                    RESET
+                </a>
+            </div>
+        </form>
+
+        <!-- Filter Status Display -->
+        {% if session.get('trade_type') or session.get('filter_type') %}
+        <div class="ml-4">
+            <div class="flex items-center mb-2">
+                <span class="text-terminal-green">$</span>
+                <span class="ml-2 text-gray-400">filter --status</span>
+            </div>
+            <div class="ml-4 bg-gray-900 rounded p-3 border border-gray-700">
+                <p class="text-blue-400">
+                    <span class="text-yellow-400">Trade Type:</span> 
+                    {% if session.get('trade_type') == 'profit' %}
+                        Profit Trades Only
+                    {% elif session.get('trade_type') == 'loss' %}
+                        Loss Trades Only
+                    {% else %}
+                        All Trades
+                    {% endif %}
+                </p>
+                {% if session.get('trade_type') %}
+                <p class="text-blue-400">
+                    <span class="text-yellow-400">Consecutive Filter:</span> 
+                    {% if session.get('filter_type') == '1' %}
+                        Single Orders Only
+                    {% elif session.get('filter_type') == '2' %}
+                        Max 2 Consecutive Orders
+                    {% elif session.get('filter_type') == '3' %}
+                        Max 3 Consecutive Orders
+                    {% elif session.get('filter_type') == '4' %}
+                        Max 4 Consecutive Orders
+                    {% elif session.get('filter_type') == '5' %}
+                        Max 5 Consecutive Orders
+                    {% elif session.get('filter_type') == 'consecutive' %}
+                        All Consecutive Orders Only
+                    {% else %}
+                        No Filter
+                    {% endif %}
+                </p>
+                {% endif %}
+                {% if filtered_trades_count is defined %}
+                <p class="text-green-400 text-sm mt-1">
+                    Filtered Results: {{ filtered_trades_count }} trades found
+                </p>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Script Control Section -->
+        <div class="ml-4">
+            <div class="flex items-center mb-2">
+                <span class="text-terminal-green">$</span>
+                <span class="ml-2 text-gray-400">script --control</span>
+            </div>
+            <div class="flex items-center space-x-4">
+                <button id="scriptControlBtn" 
+                        class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition-colors font-semibold disabled:bg-gray-600 disabled:cursor-not-allowed"
+                        onclick="toggleScript()">
+                    <span id="btnText">START</span>
+                </button>
+                <div id="scriptStatus" class="text-sm">
+                    <span class="text-gray-400">Status:</span>
+                    <span id="statusText" class="text-yellow-400">STOPPED</span>
+                </div>
+            </div>
+            <div id="scriptMessage" class="mt-2 text-sm" style="display: none;"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentScriptStatus = '{{ script_status }}';
+let statusCheckInterval = null;
+
+function updateUI() {
+    const btn = document.getElementById('scriptControlBtn');
+    const btnText = document.getElementById('btnText');
+    const statusText = document.getElementById('statusText');
+    
+    switch(currentScriptStatus) {
+        case 'running':
+            btn.className = 'bg-red-600 text-white px-6 py-2 rounded hover:bg-red-700 transition-colors font-semibold';
+            btnText.textContent = 'STOP';
+            statusText.textContent = 'RUNNING';
+            statusText.className = 'text-green-400';
+            btn.disabled = false;
+            // Start checking status when running
+            if (!statusCheckInterval) {
+                statusCheckInterval = setInterval(checkScriptStatus, 2000);
+            }
+            break;
+        case 'stopping':
+            btn.className = 'bg-gray-600 text-white px-6 py-2 rounded transition-colors font-semibold disabled:cursor-not-allowed';
+            btnText.textContent = 'STOPPING...';
+            statusText.textContent = 'STOPPING';
+            statusText.className = 'text-orange-400';
+            btn.disabled = true;
+            break;
+        default: // stopped
+            btn.className = 'bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition-colors font-semibold';
+            btnText.textContent = 'START';
+            statusText.textContent = 'STOPPED';
+            statusText.className = 'text-yellow-400';
+            btn.disabled = false;
+            // Stop checking status when stopped
+            if (statusCheckInterval) {
+                clearInterval(statusCheckInterval);
+                statusCheckInterval = null;
+            }
+            break;
+    }
+}
+
+function showMessage(message, isError = false) {
+    const messageDiv = document.getElementById('scriptMessage');
+    messageDiv.textContent = message;
+    messageDiv.className = `mt-2 text-sm ${isError ? 'text-red-400' : 'text-green-400'}`;
+    messageDiv.style.display = 'block';
+    
+    setTimeout(() => {
+        messageDiv.style.display = 'none';
+    }, 5000);
+}
+
+function toggleScript() {
+    const isRunning = currentScriptStatus === 'running';
+    const endpoint = isRunning ? '/stop_script' : '/start_script';
+    
+    // Update UI immediately to show processing state
+    if (isRunning) {
+        currentScriptStatus = 'stopping';
+    }
+    updateUI();
+    
+    fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            currentScriptStatus = isRunning ? 'stopped' : 'running';
+            showMessage(data.message, false);
+        } else {
+            currentScriptStatus = 'stopped'; // Reset to stopped on error
+            showMessage(data.message, true);
+        }
+        updateUI();
+    })
+    .catch(error => {
+        currentScriptStatus = 'stopped'; // Reset to stopped on error
+        showMessage('Network error: ' + error.message, true);
+        updateUI();
+    });
+}
+
+function checkScriptStatus() {
+    // Only check if we think script is running
+    if (currentScriptStatus !== 'running') {
+        return;
+    }
+    
+    fetch('/script_status')
+    .then(response => response.json())
+    .then(data => {
+        if (data.status !== currentScriptStatus) {
+            currentScriptStatus = data.status;
+            updateUI();
+            
+            // If script stopped unexpectedly, show message
+            if (data.status === 'stopped') {
+                showMessage('Script has finished or stopped unexpectedly', false);
+            }
+        }
+    })
+    .catch(error => {
+        console.error('Error checking script status:', error);
+    });
+}
+
+// Initialize UI on page load
+document.addEventListener('DOMContentLoaded', function() {
+    updateUI();
+});
+
+// Clean up interval when page is unloaded
+window.addEventListener('beforeunload', function() {
+    if (statusCheckInterval) {
+        clearInterval(statusCheckInterval);
+    }
+});
+</script>
