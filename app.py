@@ -1,15 +1,11 @@
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session
 import pandas as pd
 import math
 import json
 import os
 import shutil
-import subprocess
-import signal
 from io import BytesIO
 from datetime import datetime
-import threading
-import time
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-here'  # Change this to a random secret key
@@ -20,10 +16,6 @@ trade_data_store = {
     'filtered_trades': [],
     'trader_info': {}
 }
-
-# Global variables for script control
-script_process = None
-script_status = 'stopped'  # 'stopped', 'running', 'stopping'
 
 @app.route('/')
 def home():
@@ -57,7 +49,6 @@ def home():
                          trades=trades_page,
                          trader_info=trader_info,
                          filtered_trades_count=session.get('filtered_trades_count'),
-                         script_status=script_status,
                          pagination={
                              'page': page,
                              'total_pages': total_pages,
@@ -260,7 +251,7 @@ def delete_files():
         
         if deleted_files:
             print(f"Deleted files: {', '.join(deleted_files)}")
-            session['success_message'] = f"Successfully deleted {len(deleted_files)} files"
+            session['success_message'] = f"Successfully deleted {len(deleted_files)} files/directories"
         else:
             session['success_message'] = "No files found to delete"
             
@@ -269,137 +260,6 @@ def delete_files():
         session['error'] = f"Error deleting files: {str(e)}"
     
     return redirect(url_for('home'))
-
-@app.route('/start_script', methods=['POST'])
-def start_script():
-    global script_process, script_status
-    
-    if script_status == 'running':
-        return jsonify({'status': 'error', 'message': 'Script is already running'})
-    
-    try:
-        # Check if script.py exists
-        if not os.path.exists('script.py'):
-            return jsonify({'status': 'error', 'message': 'script.py not found in root folder'})
-        
-        # Start the script as a subprocess with better error handling
-        if os.name == 'nt':  # Windows
-            script_process = subprocess.Popen(
-                ['python', 'script.py'], 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.STDOUT,  # Combine stderr with stdout
-                stdin=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-                universal_newlines=True,
-                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
-            )
-        else:  # Unix/Linux/Mac
-            script_process = subprocess.Popen(
-                ['python', 'script.py'], 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.STDOUT,
-                stdin=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-                universal_newlines=True,
-                preexec_fn=os.setsid
-            )
-        
-        script_status = 'running'
-        
-        # Start a thread to monitor the script output
-        def monitor_script():
-            try:
-                while script_process.poll() is None:
-                    if script_process.stdout:
-                        line = script_process.stdout.readline()
-                        if line:
-                            print(f"[SCRIPT]: {line.strip()}")
-                    time.sleep(0.1)
-            except Exception as e:
-                print(f"[SCRIPT MONITOR ERROR]: {e}")
-        
-        monitor_thread = threading.Thread(target=monitor_script, daemon=True)
-        monitor_thread.start()
-        
-        print(f"Started script.py with PID: {script_process.pid}")
-        return jsonify({'status': 'success', 'message': 'Script started successfully'})
-        
-    except Exception as e:
-        script_status = 'stopped'
-        print(f"Error starting script: {e}")
-        return jsonify({'status': 'error', 'message': f'Failed to start script: {str(e)}'})
-
-@app.route('/stop_script', methods=['POST'])
-def stop_script():
-    global script_process, script_status
-    
-    if script_status != 'running':
-        return jsonify({'status': 'error', 'message': 'Script is not running'})
-    
-    try:
-        script_status = 'stopping'
-        
-        if script_process and script_process.poll() is None:
-            # Terminate the process
-            if os.name == 'nt':  # Windows
-                try:
-                    script_process.send_signal(signal.CTRL_BREAK_EVENT)
-                except:
-                    pass
-                time.sleep(2)
-                if script_process.poll() is None:
-                    script_process.terminate()
-                    time.sleep(2)
-                    if script_process.poll() is None:
-                        script_process.kill()
-            else:  # Unix/Linux/Mac
-                try:
-                    os.killpg(os.getpgid(script_process.pid), signal.SIGTERM)
-                except:
-                    script_process.terminate()
-                time.sleep(2)
-                if script_process.poll() is None:
-                    try:
-                        os.killpg(os.getpgid(script_process.pid), signal.SIGKILL)
-                    except:
-                        script_process.kill()
-        
-        script_status = 'stopped'
-        script_process = None
-        
-        print("Script stopped successfully")
-        return jsonify({'status': 'success', 'message': 'Script stopped successfully'})
-        
-    except Exception as e:
-        script_status = 'stopped'
-        script_process = None
-        print(f"Error stopping script: {e}")
-        return jsonify({'status': 'error', 'message': f'Error stopping script: {str(e)}'})
-
-@app.route('/script_status')
-def get_script_status():
-    global script_process, script_status
-    
-    # Check if process is still running
-    if script_process and script_process.poll() is not None:
-        # Process has ended, check exit code
-        exit_code = script_process.returncode
-        if exit_code != 0:
-            print(f"Script ended with exit code: {exit_code}")
-            # Try to read any error output
-            try:
-                if script_process.stderr:
-                    error_output = script_process.stderr.read().decode('utf-8')
-                    if error_output:
-                        print(f"Script error output: {error_output}")
-            except:
-                pass
-        script_status = 'stopped'
-        script_process = None
-    
-    return jsonify({'status': script_status})
 
 def apply_consecutive_filter(trades, filter_type, trade_type):
     """Apply consecutive filtering logic based on filter type and trade type"""
